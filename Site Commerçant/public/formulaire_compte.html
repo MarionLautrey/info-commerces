@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Formulaire Compte</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+</head>
+<body>
+
+<header class="header">
+  <h1>Compte</h1>
+  <button id="backBtn" class="btn">Retour</button>
+</header>
+
+<main class="main">
+  <section class="container">
+    <input type="text" id="login" placeholder="Login" required>
+    <input type="text" id="email" placeholder="Email" required>
+  <div class="password-container">
+    <input type="password" id="mot_de_passe" placeholder="Mot de passe">      
+  <div class="show-password">
+    <input type="checkbox" id="showPasswordCheckbox">
+    <label for="showPasswordCheckbox">Afficher le mot de passe</label>
+    <button type="button" id="generateBtn" class="btn">Générer</button>
+  </div>
+  </div>
+  <select id="nom_commercial"></select>
+  <div class="form-group">
+  <label>
+    <input type="checkbox" id="qualite">
+    Administrateur
+  </label>
+  </div>
+    <button id="submitBtn" class="btn primary">Enregistrer</button>
+    <p id="result"></p>
+  </section>
+</main>
+
+<script>
+let editCompte = JSON.parse(sessionStorage.getItem('editCompte'));
+let loginInput = document.getElementById('login');
+let emailInput = document.getElementById('email');
+let motDePasseInput = document.getElementById('mot_de_passe');
+let generateBtn = document.getElementById('generateBtn');
+let qualiteInput = document.getElementById('qualite');
+let selectCommercant = document.getElementById('nom_commercial');
+let result = document.getElementById('result');
+let backBtn = document.getElementById('backBtn');
+let submitBtn = document.getElementById('submitBtn');
+let qualiteWrapper = document.querySelector('.form-group');
+
+// Vérification session 
+document.addEventListener('DOMContentLoaded', async () => {
+  let session = JSON.parse(sessionStorage.getItem('session'));
+  if (!session?.token || !session.id_compte) {
+    window.location.replace('login.html');
+    return;
+  }
+  let currentUser = null;
+  let isCurrentUserAdmin = false;
+  try {
+    let resUser = await fetch(`/compte_commercants/${session.id_compte}`, {
+      headers: { 'x-auth': session.token }
+    });
+    let jsonUser = await resUser.json();
+    if (!resUser.ok) throw new Error(jsonUser.erreur || 'Erreur API');
+    currentUser = jsonUser;
+    isCurrentUserAdmin = [true, "true", 1, "1", "oui"].includes(currentUser.qualite);
+  } catch (err) {
+    console.error('Impossible de récupérer le compte connecté:', err);
+    window.location.replace('login.html');
+    return;
+  }
+  console.log('Utilisateur connecté:', currentUser);
+  console.log('Admin:', isCurrentUserAdmin);
+
+// Checkbox Administrateur
+  if (!isCurrentUserAdmin && qualiteWrapper) qualiteWrapper.style.display = 'none';
+  if (isCurrentUserAdmin && qualiteWrapper) qualiteWrapper.style.display = 'block';
+
+// Permet de savoir si le login est déja utilisé
+  async function loginExiste(login) {
+    try {
+      let res = await fetch(`/compte_commercants/check-login?login=${encodeURIComponent(login)}`, {
+        headers: { 'x-auth': session.token }
+      });
+      let json = await res.json();
+      return json.exists;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  }
+
+// Désactiver le bouton Générer si login invalide
+  async function validateLoginForGeneration() {
+    if (!isCurrentUserAdmin || !generateBtn) return;
+    let login = loginInput.value.trim();
+
+// Si le login est null 
+    if (!login) {
+      generateBtn.disabled = true;
+      generateBtn.title = "Login requis pour générer un mot de passe";
+      return;
+    }
+
+// Si on édite et que le login n'a pas changé 
+    if (editCompte && login === editCompte.login) {
+      generateBtn.disabled = false;
+      generateBtn.title = "";
+      return;
+    }
+    let exists = await loginExiste(login);
+    if (exists) {
+      generateBtn.disabled = true;
+      generateBtn.title = "Ce login est déjà utilisé";
+    } else {
+      generateBtn.disabled = false;
+      generateBtn.title = "";
+    }
+  }
+  loginInput.addEventListener('input', validateLoginForGeneration);
+
+// Masquer le bouton Générer pour les non-admins
+  if (!isCurrentUserAdmin) {
+    if (generateBtn) generateBtn.style.display = 'none';
+  } else {
+    if (generateBtn) generateBtn.style.display = 'inline-block';
+  }
+
+// Bouton retour 
+  backBtn.onclick = () => {
+    sessionStorage.removeItem('editCompte');
+    location.href = 'compte.html';
+  };
+
+// Pré-remplissage formulaire
+  if (editCompte) {
+    loginInput.value = editCompte.login || '';
+    emailInput.value = editCompte.email || '';
+    qualiteInput.checked = !!editCompte.qualite;
+    if (!isCurrentUserAdmin) {
+      loginInput.readOnly = true;
+      selectCommercant.disabled = true; 
+    } else if (editCompte.qualite) {
+      qualiteInput.checked = true;
+      qualiteInput.disabled = true;
+    } else {
+      qualiteInput.disabled = false;
+    }
+    validateLoginForGeneration();
+  }
+
+// Liste des commerçants
+  try {
+    let resCom = await fetch('/commercants', { headers: { 'x-auth': session.token } });
+    let commercants = await resCom.json();
+    if (!resCom.ok) throw new Error('Erreur API');
+    selectCommercant.innerHTML = '<option value="">Sélectionner un commerce</option>';
+    commercants.forEach(c => {
+      let option = document.createElement('option');
+      option.value = c.id_commercant;
+      option.textContent = c.nom_commercial;
+      if (editCompte && editCompte.id_commercant === c.id_commercant) option.selected = true;
+      selectCommercant.appendChild(option);
+    });
+    new Choices(selectCommercant, { searchEnabled: true, itemSelectText: '', searchPlaceholderValue: 'Rechercher un commerce...', shouldSort: false });
+  } catch (err) {
+    console.error(err);
+    selectCommercant.innerHTML = '<option value="">Erreur de chargement</option>';
+  }
+
+// Générer mot de passe
+  function generatePassword(length = 12) {
+    let lower = 'abcdefghijklmnopqrstuvwxyz';
+    let upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let digits = '0123456789';
+    let special = '!@#$%^&*()_+{}[]';
+    let all = lower + upper + digits + special;
+    let password = '';
+    password += lower[Math.floor(Math.random() * lower.length)];
+    password += upper[Math.floor(Math.random() * upper.length)];
+    password += digits[Math.floor(Math.random() * digits.length)];
+    password += special[Math.floor(Math.random() * special.length)];
+    for (let i = password.length; i < length; i++) {
+      password += all[Math.floor(Math.random() * all.length)];
+    }
+    return password.split('').sort(() => Math.random() - 0.5).join('');
+  }
+  generateBtn.onclick = async () => {
+    if (!isCurrentUserAdmin) return;
+    await validateLoginForGeneration();
+    if (generateBtn.disabled) return;
+    let login = loginInput.value.trim();
+    let confirmGenerate = confirm(
+      `⚠️ Génération d'un nouveau mot de passe\n\nCompte : ${login}\n\nÊtes-vous sûr ? L'ancien mot de passe sera remplacé.`
+    );
+    if (!confirmGenerate) return;
+    motDePasseInput.value = generatePassword(12);
+    alert(` Nouveau mot de passe généré pour ${login}`);
+  };
+
+// Voir / cacher mot de passe 
+  let showPasswordCheckbox = document.getElementById('showPasswordCheckbox');
+  showPasswordCheckbox.addEventListener('change', () => {
+    motDePasseInput.type = showPasswordCheckbox.checked ? 'text' : 'password';
+  });
+
+// Enregistrement formulaire
+  submitBtn.onclick = async () => {
+    result.textContent = '';    
+    if (!editCompte) {
+      result.textContent = "Erreur : aucun compte sélectionné pour modification";
+      result.style.color = 'red';
+      return;
+    }
+    if (!selectCommercant.value) {
+      result.textContent = 'Veuillez sélectionner un commerce';
+      result.style.color = 'red';
+      return;
+    }
+    let newLogin = loginInput.value.trim();
+    if (isCurrentUserAdmin && editCompte && newLogin !== editCompte.login) {
+      try {
+        let resCheck = await fetch(`/compte_commercants/check-login?login=${encodeURIComponent(newLogin)}`, {
+          headers: { 'x-auth': session.token }
+        });
+        let jsonCheck = await resCheck.json();
+        if (jsonCheck.exists) {
+          result.textContent = ` Le login "${newLogin}" est déjà utilisé`;
+          result.style.color = 'red';
+          return;
+        }
+      } catch (err) {
+        result.textContent = `Erreur lors de la vérification du login: ${err.message}`;
+        result.style.color = 'red';
+        return;
+      }
+    }
+    let data = {
+      email: emailInput.value.trim(),
+      id_commercant: selectCommercant.value,
+      mot_de_passe: motDePasseInput.value.trim() || undefined,
+      qualite: isCurrentUserAdmin ? qualiteInput.checked : editCompte.qualite
+    };
+    if (isCurrentUserAdmin) data.login = newLogin;
+    try {
+      let res = await fetch(`/compte_commercants/${editCompte.id_compte}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-auth': session.token },
+        body: JSON.stringify(data)
+      });
+      let json = await res.json();
+      if (!res.ok) throw new Error(json.erreur || 'Erreur');
+      result.textContent = 'Compte mis à jour avec succès';
+      result.style.color = 'green';
+      setTimeout(() => {
+        sessionStorage.removeItem('editCompte');
+        window.location.href = 'compte.html';
+      }, 800);
+    } catch (err) {
+      result.textContent = err.message;
+      result.style.color = 'red';
+    }
+  };
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

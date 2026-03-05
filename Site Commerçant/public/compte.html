@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Compte</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left"><h1>Compte</h1></div>
+  <div class="header-center">
+    <button id="btnInfos" class="header-text-btn">Commerçant</button>
+    <button id="btnActualite" class="header-text-btn">Actualité</button>
+    <button id="btnCompte" class="header-text-btn">Compte</button>
+  </div>
+  <div class="header-right" id="headerRight"></div>
+</header>
+
+<main class="main">
+  <div class="toolbar-comptes" id="toolbarComptes" style="display:none;">
+    <input type="text" id="searchInput" placeholder="Rechercher un compte...">
+    <button id="showComptesBtn" class="btn secondary" style="display:none;">Afficher les comptes</button>
+  </div>
+  <div class="add-actualite-container">
+    <button id="addCompteBtn" class="btn primary" style="display:none;">Créer un compte</button>
+  </div>
+  <section id="comptesList" class="actualites-container"></section>
+  <div id="paginationContainer" style="text-align:center; margin-top:10px; display:none;">
+    <button id="prevPageBtn" class="btn secondary">Précédent</button>
+    <span id="pageInfo" style="margin:0 10px;"></span>
+    <button id="nextPageBtn" class="btn secondary">Suivant</button>
+  </div>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+let token = session?.token || null;
+let isAdmin = false;
+let headerRight = document.getElementById('headerRight');
+let comptesList = document.getElementById('comptesList');
+let addBouton = document.getElementById('addCompteBtn');
+let btnCompte = document.getElementById('btnCompte');
+let showComptesBtn = document.getElementById('showComptesBtn');
+let toolbarComptes = document.getElementById('toolbarComptes');
+let paginationContainer = document.getElementById('paginationContainer');
+let prevPageBtn = document.getElementById('prevPageBtn');
+let nextPageBtn = document.getElementById('nextPageBtn');
+let pageInfo = document.getElementById('pageInfo');
+
+// Pagination
+let allComptes = [];
+let filteredComptes = [];
+let currentPage = 1;
+let PAGE_SIZE = 10;
+
+// Initialisation 
+(async function init() {
+  await checkAdmin();
+  renderHeader();
+})();
+
+// Vérifier rôle admin 
+async function checkAdmin() {
+  if (!token) {
+    isAdmin = false;
+    return;
+  }
+  try {
+    let res = await fetch('/commercants/session', { headers: { 'x-auth': token } });
+    if (!res.ok) throw new Error();
+    let user = await res.json();
+    isAdmin = !!user.qualite;
+    if (!isAdmin && user.Commercant) {
+      session.nom_commercial = user.Commercant.nom_commercial;
+    }
+  } catch {
+    isAdmin = false;
+  }
+}
+
+// Affichage header 
+function renderHeader() {
+  headerRight.innerHTML = '';
+  addBouton.style.display = 'none';
+  showComptesBtn.style.display = 'none';
+  toolbarComptes.style.display = 'none';
+  if (!session?.id_compte) {
+    comptesList.innerHTML = '<p>Veuillez vous connecter pour voir la page compte.</p>';
+    paginationContainer.style.display = 'none';
+    let loginBtn = document.createElement('button');
+    loginBtn.className = 'btn login-btn';
+    loginBtn.textContent = 'Se connecter';
+    loginBtn.onclick = () => window.location.href = 'login.html';
+    headerRight.appendChild(loginBtn);
+    return;
+  }
+  btnCompte.style.display = 'inline-block';
+  btnCompte.onclick = () => window.location.href = 'compte.html';
+
+// Bouton déconnexion
+  let logoutBtn = document.createElement('button');
+  logoutBtn.className = 'btn danger';
+  logoutBtn.textContent = 'Déconnexion';
+  logoutBtn.onclick = logout;
+  headerRight.appendChild(logoutBtn);
+
+// Affichage en fonction du rôle
+  if (isAdmin) {
+    toolbarComptes.style.display = 'flex';
+    addBouton.style.display = 'block';
+    showComptesBtn.style.display = 'inline-block';
+  } else {
+    fetchComptes().then(() => {
+      currentPage = 1;
+      afficherComptantUnique();
+    });
+  }
+}
+
+// Déconnexion
+function logout() {
+  sessionStorage.removeItem('session');
+  session = null;
+  token = null;
+  isAdmin = false;
+  comptesList.innerHTML = '<p>Connectez-vous pour voir les comptes.</p>';
+  paginationContainer.style.display = 'none';
+  renderHeader();
+}
+
+// Récupérer comptes 
+async function fetchComptes() {
+  if (!session?.id_compte) return;
+  comptesList.textContent = 'Chargement...';
+  try {
+    let res = await fetch('/compte_commercants', { headers: { 'x-auth': token } });
+    if (!res.ok) throw new Error();
+    allComptes = await res.json();
+    if (!isAdmin) {
+      allComptes = allComptes.filter(c => c.id_compte === session.id_compte);
+    }
+    filteredComptes = [...allComptes];
+  } catch {
+    comptesList.textContent = 'Erreur lors du chargement des comptes.';
+  }
+}
+
+// Tri des comptes par login et nom commercial
+function trierComptes(data) {
+  return data.sort((a,b) => {
+    let loginA = a.login.toLowerCase();
+    let loginB = b.login.toLowerCase();
+    if(loginA<loginB) return -1;
+    if(loginA>loginB) return 1;
+    let commA = (a.Commercant?.nom_commercial || '').toLowerCase();
+    let commB = (b.Commercant?.nom_commercial || '').toLowerCase();
+    if(commA<commB) return -1;
+    if(commA>commB) return 1;
+    return 0;
+  });
+}
+
+// Affichage pour commerçant simple 
+function afficherComptantUnique() {
+  let compte = allComptes[0];
+  if (!compte) {
+    comptesList.innerHTML = '<p>Aucun compte trouvé.</p>';
+    return;
+  }
+  comptesList.innerHTML = `
+    <div class="commercant-card">
+      <p><strong>Login :</strong> ${compte.login}</p>
+      <p><strong>Email :</strong> ${compte.email}</p>
+      <p><strong>Commerce :</strong> ${compte.Commercant?.nom_commercial || session.nom_commercial || '-'}</p>
+      <p>${compte.qualite ? 'Admin' : 'Utilisateur'}</p>
+      <div class="actions">
+      <button class="btn primary editBtn" id="modifierBtn">Modifier</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('modifierBtn').onclick = () => {
+    sessionStorage.setItem('editCompte', JSON.stringify(compte));
+    window.location.href = 'formulaire_compte.html';
+  };
+}
+
+// Affichage pour admin avec pagination
+function afficherPage(page) {
+  comptesList.innerHTML = '';
+  filteredComptes = trierComptes(filteredComptes);
+  let start = (page-1)*PAGE_SIZE;
+  let end = start+PAGE_SIZE;
+  let pageItems = filteredComptes.slice(start,end);
+  if(pageItems.length===0){
+    comptesList.innerHTML='<p>Aucun compte trouvé.</p>';
+    paginationContainer.style.display='none';
+    return;
+  }
+  pageItems.forEach(c => {
+    let div = document.createElement('div');
+    div.className = 'commercant-card';
+    let isEditAllowed = !c.qualite || c.id_compte===session.id_compte;
+    div.innerHTML = `
+      <p><strong>Login :</strong> ${c.login}</p>
+      <p><strong>Email :</strong> ${c.email}</p>
+      <p><strong>Commerce :</strong> ${c.Commercant?.nom_commercial || '-'}</p>
+      <p>${c.qualite?'Admin':'Utilisateur'}</p>
+      <div class="actions">
+        <button class="btn primary editBtn" ${!isEditAllowed?'style="display:none;"':''}>Modifier</button>
+        ${isAdmin && isEditAllowed?'<button class="btn danger deleteBtn">Supprimer</button>':''}
+      </div>
+    `;
+    if(isEditAllowed) {
+      div.querySelector('.editBtn').onclick = () => {
+        sessionStorage.setItem('editCompte', JSON.stringify(c));
+        window.location.href='formulaire_compte.html';
+      };
+    }
+    if(isAdmin && isEditAllowed && div.querySelector('.deleteBtn')) {
+      div.querySelector('.deleteBtn').onclick = () => deleteCompte(c.id_compte);
+    }
+    comptesList.appendChild(div);
+  });
+  paginationContainer.style.display = filteredComptes.length>PAGE_SIZE?'block':'none';
+  pageInfo.textContent=`Page ${currentPage} / ${Math.ceil(filteredComptes.length/PAGE_SIZE)}`;
+  prevPageBtn.disabled=currentPage===1;
+  nextPageBtn.disabled=currentPage>=Math.ceil(filteredComptes.length/PAGE_SIZE);
+}
+
+// Supprimer compte 
+async function deleteCompte(id){
+  if(!confirm('Supprimer ce compte ?')) return;
+  await fetch(`/compte_commercants/${id}`, { method:'DELETE', headers:{'x-auth':token} });
+  await fetchComptes();
+  currentPage=1;
+  afficherPage(currentPage);
+}
+
+// Boutons navigation 
+document.getElementById('btnActualite').onclick = ()=>window.location.href='actualite.html';
+document.getElementById('btnInfos').onclick = ()=>window.location.href='commercant.html';
+addBouton.onclick = ()=>window.location.href='register.html';
+
+// Afficher comptes admin 
+showComptesBtn.onclick = async ()=>{
+  await fetchComptes();
+  currentPage=1;
+  afficherPage(currentPage);
+};
+
+// Pagination 
+prevPageBtn.onclick = ()=>{ if(currentPage>1){ currentPage--; afficherPage(currentPage); }};
+nextPageBtn.onclick = ()=>{ if(currentPage<Math.ceil(filteredComptes.length/PAGE_SIZE)){ currentPage++; afficherPage(currentPage); }};
+
+// Recherche admin 
+document.getElementById('searchInput').addEventListener('input', e=>{
+  let value=e.target.value.toLowerCase();
+  filteredComptes=allComptes.filter(c=>
+    c.login.toLowerCase().includes(value) ||
+    c.email.toLowerCase().includes(value) ||
+    (c.Commercant?.nom_commercial||'').toLowerCase().includes(value)
+  );
+  filteredComptes=trierComptes(filteredComptes);
+  currentPage=1;
+  afficherPage(currentPage);
+});
+
+// Gestion retour arrière pour éviter l'affichage si déconnecté
+window.addEventListener('pageshow', async function () {
+  session = JSON.parse(sessionStorage.getItem('session'));
+  token = session?.token || null;
+  isAdmin = false;
+  await checkAdmin();
+  renderHeader();
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

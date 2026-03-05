@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Formulaire Actualité</title>
+  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+</head>
+<body>
+
+<header class="header">
+  <h1>Actualité</h1>
+  <button id="backBtn" class="btn-link">Retour</button>
+</header>
+
+<main class="main">
+  <section class="container">
+    <input type="text" id="titre" placeholder="Titre de l'actualité">
+    <textarea id="contenu" placeholder="Contenu de l'actualité" rows="5"></textarea>
+    <input type="file" id="image" accept="image/*">
+    <input type="hidden" id="deleteImage" value="false">
+    <img id="previewImg" style="max-width:300px; margin:10px 0; display:none;"alt="Aperçu image">
+    <button id="deleteImageBtn"class="btn danger" style="display:none; margin-bottom:10px;">Supprimer l’image</button>
+    <button id="submitBtn" class="btn primary">Publier</button>
+    <p id="result"></p>
+  </section>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+if (!session?.token) window.location.href = 'login.html';
+let editActualite = JSON.parse(sessionStorage.getItem('editActualite'));
+let previewImg = document.getElementById('previewImg');
+let deleteImageBtn = document.getElementById('deleteImageBtn');
+let deleteImageInput = document.getElementById('deleteImage');
+let backBtn = document.getElementById('backBtn');
+
+// Bouton retour 
+backBtn.onclick = () => {
+  window.location.href = 'actualite.html';
+};
+
+// Modifier des actualités
+if (editActualite) {
+  document.getElementById('titre').value = editActualite.titre;
+  document.getElementById('contenu').value = editActualite.contenu;
+  if (editActualite.chemin_img) {
+    previewImg.src = editActualite.chemin_img.startsWith('http') 
+      ? editActualite.chemin_img 
+      : '/actualite/images/' + editActualite.chemin_img;
+    previewImg.style.display = 'block';
+    deleteImageBtn.style.display = 'inline-block';
+  }
+}
+
+// Changer d'image 
+document.getElementById('image').addEventListener('change', e => {
+  if (e.target.files.length > 0) {
+    previewImg.src = URL.createObjectURL(e.target.files[0]);
+    previewImg.style.display = 'block';
+    deleteImageBtn.style.display = 'none';
+    deleteImageInput.value = 'false';
+  }
+});
+
+// Supprimer une image 
+deleteImageBtn.onclick = () => {
+  previewImg.src = '';
+  previewImg.style.display = 'none';
+  deleteImageBtn.style.display = 'none';
+  document.getElementById('image').value = '';
+  deleteImageInput.value = 'true';
+};
+
+// Formulaire 
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  let titre = document.getElementById('titre').value.trim();
+  let contenu = document.getElementById('contenu').value.trim();
+  let imageFile = document.getElementById('image').files[0];
+  let result = document.getElementById('result');
+  if (!titre || !contenu) {
+    result.textContent = 'Titre et contenu obligatoires';
+    result.style.color = 'red';
+    return;
+  }
+  let formData = new FormData();
+  formData.append('titre', titre);
+  formData.append('contenu', contenu);
+  formData.append('delete_image', deleteImageInput.value);
+  if (imageFile) formData.append('image', imageFile);
+  let url = editActualite ? `/actualites/${editActualite.id_actualite}`: '/actualites';
+  let method = editActualite ? 'PUT' : 'POST';
+  try {
+    let res = await fetch(url, {
+      method,
+      headers: { 'x-auth': session.token },
+      body: formData
+    });
+    let json = await res.json();
+    if (res.ok) {
+      result.textContent = 'Actualité enregistrée';
+      result.style.color = 'green';
+      sessionStorage.removeItem('editActualite');
+      setTimeout(() => window.location.href = 'actualite.html', 800);
+    } else {
+      result.textContent = json.erreur || 'Erreur';
+      result.style.color = 'red';
+    }
+  } catch (err) {
+    console.error(err);
+    result.textContent = 'Erreur réseau';
+    result.style.color = 'red';
+  }
+});
+
+// Gestion retour arrière pour éviter l'affichage des infos si on est déconnecté
+window.addEventListener('pageshow', event => {
+  session = JSON.parse(sessionStorage.getItem('session'));
+  if (!session?.token) window.location.href = 'login.html';
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

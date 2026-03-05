@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Formulaire Commerçant</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+</head>
+<body>
+
+<header class="header">
+  <h1>Commerçant</h1>
+  <button id="backBtn" class="btn">Retour</button>
+</header>
+
+<main class="main">
+  <section class="container">
+    <input type="text" id="siret" placeholder="SIRET">
+    <input type="text" id="siren" placeholder="SIREN">
+    <input type="text" id="nom_commercial" placeholder="Nom commercial">
+    <input type="text" id="adresse" placeholder="Adresse">
+    <input type="text" id="code_postal" placeholder="Code postal">
+    <input type="text" id="ville" placeholder="Ville">
+    <input type="text" id="telephone" placeholder="Téléphone">
+    <input type="text" id="email" placeholder="Email">
+    <input type="text" id="site_web" placeholder="Site Web (optionnel)">
+    <textarea id="description" placeholder="Description" rows="4"></textarea>
+    <select id="categorie">
+      <option value="">Sélectionner une catégorie</option>
+    </select>
+    <div class="form-group">
+      <label><input type="checkbox" id="actif"> Actif</label>
+    </div>
+    <div class="form-group">
+      <label>Image :</label>
+      <input type="file" id="imageUpload" accept="image/*">
+      <div id="imagePreview" style="margin-top:10px;"></div>
+      <button type="button" id="removeImageBtn" class="btn danger" style="display:none;margin-top:5px;">
+        Supprimer l'image
+      </button>
+    </div>
+    <h3>Horaires</h3>
+    <div id="horairesContainer"></div>
+    <button id="submitBtn" class="btn primary">Enregistrer</button>
+    <p id="result"></p>
+  </section>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+if (!session?.token) window.location.replace('login.html');
+let currentImageFile = null;
+let deleteImage = false;
+let imageUpload = document.getElementById('imageUpload');
+let imagePreview = document.getElementById('imagePreview');
+let removeImageBtn = document.getElementById('removeImageBtn');
+let editCommercant = JSON.parse(sessionStorage.getItem('editCommercant'));
+let backBtn = document.getElementById('backBtn');
+let jours = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+let horairesContainer = document.getElementById('horairesContainer');
+let select = document.getElementById('categorie');
+let token = session.token;
+let isAdmin = false;
+
+async function checkAdmin() {
+  if (!token) {
+    isAdmin = false;
+    return;
+  }
+  try {
+    let res = await fetch('/commercants/session', {
+      headers: { 'x-auth': token }
+    });
+    if (!res.ok) throw new Error();
+    let user = await res.json();
+    isAdmin = user.qualite === 1 || user.qualite === true;
+  } catch {
+    isAdmin = false;
+  }
+}
+
+// Sauvegarder le formulaire dans sessionStorage
+function saveCommercantForm() {
+  let horaires = getHoraires();
+  let formData = {
+    siret: siret.value.trim(),
+    siren: siren.value.trim(),
+    nom_commercial: nom_commercial.value.trim(),
+    adresse: adresse.value.trim(),
+    code_postal: code_postal.value.trim(),
+    ville: ville.value.trim(),
+    telephone: telephone.value.trim(),
+    email: email.value.trim(),
+    site_web: site_web.value.trim(),
+    description: description.value.trim(),
+    actif: actif.checked,
+    id_categorie: categorie.value,
+    horaires: horaires
+  };
+  sessionStorage.setItem('commercantForm', JSON.stringify(formData));
+}
+
+// Bouton retour 
+backBtn.onclick = () => {
+  sessionStorage.removeItem('editCommercant');
+  location.href = 'commercant.html';
+};
+
+// Gestion image
+if (editCommercant?.image) {
+  imagePreview.innerHTML = `<img src="/commercant/images/${editCommercant.image}" style="max-width:200px">`;
+  removeImageBtn.style.display = 'inline-block';
+}
+imageUpload.onchange = () => {
+  currentImageFile = imageUpload.files[0];
+  deleteImage = false;
+  if (!currentImageFile) return;
+  let reader = new FileReader();
+  reader.onload = e => {
+    imagePreview.innerHTML = `<img src="${e.target.result}" style="max-width:200px">`;
+    removeImageBtn.style.display = 'inline-block';
+  };
+  reader.readAsDataURL(currentImageFile);
+};
+removeImageBtn.onclick = () => {
+  currentImageFile = null;
+  deleteImage = true;
+  imageUpload.value = '';
+  imagePreview.innerHTML = '';
+  removeImageBtn.style.display = 'none';
+};
+
+// Affichage des horaires
+jours.forEach(jour => {
+  let div = document.createElement('div');
+  div.className = 'horaire-day';
+  div.dataset.jour = jour;
+  div.innerHTML = `
+    <strong>${jour.charAt(0).toUpperCase() + jour.slice(1)}</strong>
+    <label><input type="checkbox" class="ouvert"> Ouvert</label>
+    <input type="time" class="heure_debut" disabled>
+    <input type="time" class="heure_fin" disabled>
+  `;
+  horairesContainer.appendChild(div);
+  let chk = div.querySelector('.ouvert');
+  let d = div.querySelector('.heure_debut');
+  let f = div.querySelector('.heure_fin');
+  chk.onchange = () => {
+    d.disabled = f.disabled = !chk.checked;
+    if (!chk.checked) { d.value = ''; f.value = ''; }
+  };
+});
+
+// Récupérer horaires
+function getHoraires() {
+  return Array.from(horairesContainer.children).map(day => {
+    let chk = day.querySelector('.ouvert');
+    let d = day.querySelector('.heure_debut').value;
+    let f = day.querySelector('.heure_fin').value;
+    return {
+      jour: day.dataset.jour,
+      ouverture: chk.checked ? 1 : 0,
+      heure_debut: chk.checked ? d : '',
+      heure_fin: chk.checked ? f : ''
+    };
+  });
+}
+
+// Remplir horaires existants
+if (editCommercant?.Horaire) {
+  editCommercant.Horaire.forEach(h => {
+    let div = [...horairesContainer.children].find(d => d.dataset.jour === h.jour.toLowerCase());
+    if (!div) return;
+    let chk = div.querySelector('.ouvert');
+    let d = div.querySelector('.heure_debut');
+    let f = div.querySelector('.heure_fin');
+    chk.checked = !!h.ouverture;
+    d.value = h.ouverture && h.heure_debut ? h.heure_debut.slice(0,5) : '';
+    f.value = h.ouverture && h.heure_fin ? h.heure_fin.slice(0,5) : '';
+    d.disabled = f.disabled = !chk.checked;
+  });
+}
+
+// Modifier
+if (editCommercant) {
+  siret.style.display = siren.style.display = 'none';
+  nom_commercial.value = editCommercant.nom_commercial;
+  adresse.value = editCommercant.adresse;
+  code_postal.value = editCommercant.code_postal;
+  ville.value = editCommercant.ville;
+  telephone.value = editCommercant.telephone;
+  email.value = editCommercant.email;
+  site_web.value = editCommercant.site_web || '';
+  description.value = editCommercant.description || '';
+  actif.checked = editCommercant.actif;
+}
+ 
+// Catégorie 
+fetch('/categories', { headers: { 'x-auth': token } })
+  .then(r => r.json())
+  .then(async cats => {
+    await checkAdmin();
+    select.innerHTML = '<option value="">Sélectionner une catégorie</option>';
+
+// Ajouter les catégories
+cats.forEach(c => {
+  let option = document.createElement('option');
+      option.value = c.id_categorie;
+      option.textContent = c.libelle;
+      select.appendChild(option);
+});
+
+// Restaurer catégorie sélectionnée
+let savedForm = JSON.parse(sessionStorage.getItem('commercantForm'));
+  if (editCommercant?.id_categorie) {
+    select.value = editCommercant.id_categorie;
+  } else if (savedForm?.id_categorie) {
+    select.value = savedForm.id_categorie;
+  }
+
+// Initialiser Choices
+  if (window.Choices) {
+    let categorieSelect = new Choices(select, {
+      searchEnabled: true,
+      itemSelectText: '',
+      searchPlaceholderValue: 'Rechercher une catégorie...',
+      position: 'bottom',
+      shouldSort: false
+  });
+
+  categorieSelect.passedElement.element.addEventListener('showDropdown', () => {
+    let dropdown = document.querySelector('.choices__list--dropdown');
+    if (!dropdown) return;
+
+// Ajouter catégorie
+if (isAdmin && !dropdown.querySelector('.add-category-btn')) {
+  let btn = document.createElement('div');
+      btn.className = 'add-category-btn';
+      btn.textContent = '+ Ajouter une catégorie';
+  let firstChoice = dropdown.querySelector('.choices__item--choice');
+  if (firstChoice) firstChoice.insertAdjacentElement('afterend', btn);
+    btn.addEventListener('click', () => {
+      saveCommercantForm();
+      sessionStorage.setItem('refreshCategories', 'true');
+      window.location.href = 'formulaire_categorie.html';
+  });
+}
+
+// Bouton modifier et supprimer (uniquement pour les admins)
+dropdown.querySelectorAll('.choices__item--choice').forEach(choice => {
+  if (choice.dataset.value === '' || choice.querySelector('.cat-btns')) return;
+    if (!isAdmin) return;
+      let btnsDiv = document.createElement('span');
+        btnsDiv.className = 'cat-btns';
+        btnsDiv.style.float = 'right';
+      let btnEdit = document.createElement('button');
+        btnEdit.textContent = '📝';
+        btnEdit.className = 'btn-icon';
+        btnEdit.onmousedown = e => {
+          e.preventDefault();
+          e.stopPropagation();
+      let cat = cats.find(c => c.id_categorie == choice.dataset.value);
+        if (!cat) return;
+          sessionStorage.setItem('editCategorie', JSON.stringify(cat));
+          window.location.href = 'formulaire_categorie.html';
+        };
+      let btnDelete = document.createElement('button');
+        btnDelete.textContent = '🗑️';
+        btnDelete.className = 'btn-icon danger';
+        btnDelete.onmousedown = async e => {
+          e.preventDefault();
+          e.stopPropagation();
+        let cat = cats.find(c => c.id_categorie == choice.dataset.value);
+          if (!cat) return;
+          if (!confirm(`Supprimer "${cat.libelle}" ?`)) return;
+          let res = await fetch(`/categories/${cat.id_categorie}`, {
+            method: 'DELETE',
+            headers: { 'x-auth': token }
+          });
+          if (res.ok) location.reload();
+          else alert('Erreur suppression');
+        };
+btnsDiv.appendChild(btnEdit);
+btnsDiv.appendChild(btnDelete);
+choice.appendChild(btnsDiv);
+        });
+      });
+    }
+    sessionStorage.removeItem('refreshCategories');
+  });
+
+// Formulaire 
+submitBtn.onclick = async () => {
+  let fd = new FormData();
+  fd.append('nom_commercial', nom_commercial.value.trim());
+  fd.append('adresse', adresse.value.trim());
+  fd.append('code_postal', code_postal.value.trim());
+  fd.append('ville', ville.value.trim());
+  fd.append('telephone', telephone.value.trim());
+  fd.append('email', email.value.trim());
+  fd.append('site_web', site_web.value.trim() || '');
+  fd.append('description', description.value.trim());
+  fd.append('actif', actif.checked);
+  fd.append('id_categorie', categorie.value);
+  getHoraires().forEach((h, i) => {
+    fd.append(`Horaire[${i}][jour]`, h.jour);
+    fd.append(`Horaire[${i}][ouverture]`, h.ouverture);
+    fd.append(`Horaire[${i}][heure_debut]`, h.heure_debut );
+    fd.append(`Horaire[${i}][heure_fin]`, h.heure_fin );
+  });
+  if (currentImageFile) fd.append('image', currentImageFile);
+  if (deleteImage) fd.append('delete_image', 'true');
+  if (!editCommercant) {
+    fd.append('siret', siret.value.trim());
+    fd.append('siren', siren.value.trim());
+  }
+  let res = await fetch(
+    editCommercant ? `/commercants/${editCommercant.id_commercant}` : '/commercants',
+    { method: editCommercant ? 'PUT' : 'POST', headers: { 'x-auth': session.token }, body: fd }
+  );
+  let json = await res.json();
+  result.textContent = res.ok ? 'Commerçant enregistré avec succès' : json.erreur || 'Erreur';
+  if (res.ok) setTimeout(() => location.href = 'commercant.html', 500);
+};
+
+// Restaurer formulaire sauvegardé
+let savedForm = JSON.parse(sessionStorage.getItem('commercantForm'));
+if (savedForm) {
+  siret.value = savedForm.siret || '';
+  siren.value = savedForm.siren || '';
+  nom_commercial.value = savedForm.nom_commercial || '';
+  adresse.value = savedForm.adresse || '';
+  code_postal.value = savedForm.code_postal || '';
+  ville.value = savedForm.ville || '';
+  telephone.value = savedForm.telephone || '';
+  email.value = savedForm.email || '';
+  site_web.value = savedForm.site_web || '';
+  description.value = savedForm.description || '';
+  actif.checked = savedForm.actif || false;
+  categorie.value = savedForm.id_categorie || '';
+  if (savedForm.horaires) {
+    savedForm.horaires.forEach(h => {
+      let div = [...horairesContainer.children].find(d => d.dataset.jour === h.jour);
+      if (!div) return;
+      let chk = div.querySelector('.ouvert');
+      let d = div.querySelector('.heure_debut');
+      let f = div.querySelector('.heure_fin');
+      chk.checked = !!h.ouverture;
+      d.value = h.heure_debut || '';
+      f.value = h.heure_fin || '';
+      d.disabled = f.disabled = !chk.checked;
+    });
+  }
+  sessionStorage.removeItem('commercantForm');
+}
+
+// Gestion retour arrière pour éviter l'affichage des infos si on est déconnecté
+window.addEventListener('pageshow', () => {
+  session = JSON.parse(sessionStorage.getItem('session'));
+  if (!session?.token) location.href = 'login.html';
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

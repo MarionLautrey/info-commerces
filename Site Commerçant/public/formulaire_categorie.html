@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Formulaire Catégorie</title>
+<link rel="stylesheet" href="style.css">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+</head>
+<body>
+
+<header class="header">
+  <h1>Compte</h1>
+  <button id="backBtn" class="btn">Retour</button>
+</header>
+
+<main class="main">
+  <section class="container">
+    <input type="text" id="libelle" placeholder="Nom de catégorie">
+    <textarea id="description" placeholder="Description" rows="4"></textarea>
+    <button id="submitBtn" class="btn primary">Enregistrer</button>
+    <p id="result"></p>
+  </section>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+if (!session?.token) window.location.href = 'login.html';
+let backBtn = document.getElementById('backBtn');
+let submitBtn = document.getElementById('submitBtn');
+let libelleInput = document.getElementById('libelle');
+let descriptionInput = document.getElementById('description');
+let result = document.getElementById('result');
+let editCategorie = JSON.parse(sessionStorage.getItem('editCategorie'));
+
+// Bouton retour
+backBtn.onclick = () => {
+  sessionStorage.removeItem('editCategorie');
+  window.location.href = 'commercant.html';
+};
+
+// Remplir le formulaire si modification
+if (editCategorie) {
+  libelleInput.value = editCategorie.libelle;
+  descriptionInput.value = editCategorie.description || '';
+}
+
+// Gestion du formulaire
+submitBtn.onclick = async () => {
+  let libelle = libelleInput.value.trim();
+  let description = descriptionInput.value.trim();
+  if (!libelle) {
+    result.textContent = 'Le nom de catégorie est obligatoire';
+    result.style.color = 'red';
+    return;
+  }
+  try {
+
+// Récupérer les catégories existantes pour vérifier les doublons
+    let categories = await fetch('/categories', {
+      headers: { 'x-auth': session.token }
+    }).then(r => r.json());
+    let exists = categories.some(c => 
+      c.libelle.toLowerCase() === libelle.toLowerCase() &&
+      (!editCategorie || c.id_categorie !== editCategorie.id_categorie)
+    );
+    if (exists) {
+      result.textContent = "Cette catégorie existe déjà";
+      result.style.color = 'red';
+      return;
+    }
+
+// Envoi JSON
+    let url = editCategorie ? `/categories/${editCategorie.id_categorie}` : '/categories';
+    let method = editCategorie ? 'PUT' : 'POST';
+    let res = await fetch(url, {
+      method,
+      headers: {
+        'x-auth': session.token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ libelle, description })
+    });
+    let json = await res.json();
+    if (res.ok) {
+      result.textContent = 'Catégorie enregistrée avec succès';
+      result.style.color = 'green';
+      sessionStorage.removeItem('editCategorie');
+      setTimeout(() => window.location.href = 'formulaire_commercant.html', 800);
+    } else {
+      result.textContent = json.erreur || 'Erreur serveur';
+      result.style.color = 'red';
+    }
+  } catch (err) {
+    console.error(err);
+    result.textContent = 'Erreur réseau';
+    result.style.color = 'red';
+  }
+};
+
+// Gestion retour arrière pour éviter l'affichage des infos si on est déconnecté
+window.addEventListener('pageshow', () => {
+  session = JSON.parse(sessionStorage.getItem('session'));
+  if (!session?.token) window.location.href = 'login.html';
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

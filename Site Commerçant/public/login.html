@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Connexion Commerçant</title>
+  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+</head>
+<body class="login-page">
+<div class="container">
+  <h2>Connexion</h2>
+  <form id="loginForm">
+    <input type="text" name="login" placeholder="Login" required>
+    <input type="password" id="mot_de_passe" name="mot_de_passe" placeholder="Mot de passe" required>
+    <div class="show-password">
+      <input type="checkbox" id="showPasswordCheckbox">
+      <label for="showPasswordCheckbox">Afficher le mot de passe</label>
+    </div>
+    <button type="submit">Se connecter</button>
+    <p class="forgot-password" style="margin-top: 15px; text-align: center;">
+      <a href="#" id="forgotPasswordLink">Mot de passe oublié ?</a>
+    </p>
+  </form>
+
+  <p id="result"></p>
+</div>
+
+<div id="forgotModal" class="modal">
+  <div class="modal-content">
+    <span class="close">&times;</span>
+    <p>Mot de passe oublié ?</p>
+    <p>Veuillez contacter votre administrateur réseau afin d’obtenir un nouveau mot de passe.</p>
+    <button id="modalOk">OK</button>
+  </div>
+</div>
+
+<script>
+let sessionData = JSON.parse(sessionStorage.getItem('session') || '{}');
+let sessionId = sessionData.id_session;
+let motDePasseInput = document.getElementById('mot_de_passe');
+let form = document.getElementById('loginForm');
+let showPasswordCheckbox = document.getElementById('showPasswordCheckbox');
+
+// Voir / cacher mot de passe
+showPasswordCheckbox.addEventListener('change', () => {
+  motDePasseInput.type = showPasswordCheckbox.checked ? 'text' : 'password';
+});
+
+// Mot de passe oublié
+let forgotLink = document.getElementById('forgotPasswordLink');
+let modal = document.getElementById('forgotModal');
+let closeBtn = modal.querySelector('.close');
+let modalOk = document.getElementById('modalOk');
+
+forgotLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  modal.style.display = 'block';
+});
+closeBtn.addEventListener('click', () => {
+  modal.style.display = 'none';
+});
+modalOk.addEventListener('click', () => {
+  modal.style.display = 'none';
+});
+
+// Fermer la pop-up
+window.addEventListener('click', (e) => {
+  if (e.target === modal) modal.style.display = 'none';
+});
+
+// Déconnexion automatique 
+window.addEventListener('pagehide', async () => {
+  if (!sessionId) return;
+  try {
+    navigator.sendBeacon(`/sessions/${sessionId}`, JSON.stringify({ connecter: false }));
+  } catch (err) {
+    console.warn("Impossible de mettre à jour la session à la fermeture", err);
+  }
+});
+
+// Déconnexion 
+async function logout() {
+  if (!sessionId) return;
+  try {
+    await fetch(`/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connecter: false })
+    });
+    sessionStorage.removeItem('session');
+    window.location.href = 'login.html';
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// Formulaire
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  let data = { 
+    login: form.login.value.trim(), 
+    mot_de_passe: form.mot_de_passe.value
+  };
+  try {
+    let res = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    let json = await res.json();
+    console.log(json); 
+    if (res.ok && json.session?.id_compte && json.session?.token) {
+      sessionStorage.setItem('session', JSON.stringify(json.session));
+      window.location.href = 'commercant.html';
+    } else {
+      document.getElementById('result').textContent = json.erreur || 'Identifiants incorrects';
+      document.getElementById('result').style.color = 'red';
+    }
+  } catch (err) {
+    console.error(err);
+    document.getElementById('result').textContent = 'Erreur réseau';
+    document.getElementById('result').style.color = 'red';
+  }
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

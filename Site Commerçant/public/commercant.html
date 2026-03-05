@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Commerçant</title>
+  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left"><h1>Commerçant</h1></div>
+
+  <div class="header-center">
+    <button id="btnInfos" class="header-text-btn">Commerçant</button>
+    <button id="btnActualite" class="header-text-btn">Actualité</button>
+    <button id="btnCompte" class="header-text-btn">Compte</button>
+  </div>
+
+  <div class="header-right">
+    <button id="logoutBtn" class="btn danger">Déconnexion</button>
+  </div>
+</header>
+
+<main class="main">
+  <div id="toolbarCommercants" class="toolbar-comptes" >
+    <input type="text" id="searchCommercant" placeholder=" Rechercher un commerçant..." >
+    <button id="showCommercantsBtn" class="btn secondary" style="display:none;">Afficher</button>
+  </div>
+  <div class="add-actualite-container">
+    <button id="addCommercantBtn" class="btn primary">Ajouter un commerçant</button>
+  </div>
+  <section class="actualites-container" id="commercantsList"></section>
+  <div id="paginationContainer" style="text-align:center; margin-top:10px;">
+    <button id="prevPageBtn" class="btn secondary">Précédent</button>
+    <span id="pageInfo" style="margin:0 10px;"></span>
+    <button id="nextPageBtn" class="btn secondary">Suivant</button>
+  </div>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+let token = session?.token || null;
+let logoutBtn = document.getElementById('logoutBtn');
+let addBtn = document.getElementById('addCommercantBtn');
+let commercantsList = document.getElementById('commercantsList');
+let headerRight = document.querySelector('.header-right');
+let btnCompte = document.getElementById('btnCompte');
+let toolbarCommercants = document.getElementById('toolbarCommercants');
+let searchInput = document.getElementById('searchCommercant');
+let showCommercantsBtn = document.getElementById('showCommercantsBtn');
+let joursOrdre = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'];
+let isAdmin = false;
+
+// Pagination
+let allCommercants = [];
+let filteredCommercants = [];
+let currentPage = 1;
+let PAGE_SIZE = 5; 
+
+// Affichage des pages en fonction de la connexion  
+function renderHeader() {
+
+// Utilisateur non connecté
+  if (!session?.token) {
+    logoutBtn.style.display = 'none';
+    addBtn.style.display = 'none';
+    toolbarCommercants.style.display = 'none';
+    document.getElementById('paginationContainer').style.display = 'none';
+    if (!document.getElementById('loginBtn')) {
+      let loginBtn = document.createElement('button');
+      loginBtn.id = 'loginBtn';
+      loginBtn.className = 'btn login-btn';
+      loginBtn.textContent = 'Se connecter';
+      loginBtn.onclick = () => window.location.href = 'login.html';
+      headerRight.appendChild(loginBtn);
+    }
+    return;
+  }
+
+// Utilisateur connecté
+  logoutBtn.style.display = 'inline-block';
+  addBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('loginBtn')?.remove();
+  btnCompte.style.display = 'inline-block';
+  toolbarCommercants.style.display = isAdmin ? 'flex' : 'none'; 
+  document.getElementById('paginationContainer').style.display = 'block';
+}
+
+// Vérifier les rôles 
+async function checkAdmin() {
+  if (!token) {
+    isAdmin = false;
+    renderHeader();
+    return;
+  }
+  try {
+    let res = await fetch('http://localhost:3000/commercants/session', {
+      headers: { 'x-auth': token }
+    });
+    if (!res.ok) throw new Error();
+    let user = await res.json();
+    isAdmin = !!user.qualite;
+  } catch {
+    isAdmin = false;
+  }
+  renderHeader();
+}
+
+// Bouton de l'entête 
+document.getElementById('btnActualite').onclick = () => window.location.href = 'actualite.html';
+document.getElementById('btnInfos').onclick = () => window.location.href = 'commercant.html';
+btnCompte.onclick = () => window.location.href = 'compte.html';
+
+// Déconnexion 
+logoutBtn.onclick = async () => {
+  if (session?.id_session && token) {
+    await fetch(`http://localhost:3000/sessions/${session.id_session}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-auth': token
+      },
+      body: JSON.stringify({ connecter: false })
+    });
+  }
+  sessionStorage.removeItem('session');
+  session = null;
+  token = null;
+  isAdmin = false;
+  renderHeader();
+  commercantsList.innerHTML = '<p>Veuillez vous connecter pour voir la page commerçant.</p>';
+};
+
+// Bouton ajouter  (juste pour les admin)
+addBtn.onclick = () => {
+  sessionStorage.removeItem('editCommercant');
+  window.location.href = 'formulaire_commercant.html';
+};
+
+// Affichage des horaires  
+function formatHoraires(horaires = []) {
+  let grouped = {};
+  horaires.forEach(h => {
+    if (!grouped[h.jour]) grouped[h.jour] = [];
+    let debut = h.heure_debut?.slice(0,5);
+    let fin = h.heure_fin?.slice(0,5);
+    if (!debut || !fin || (debut === '00:00' && fin === '00:00')) {
+      grouped[h.jour].push('<span class="horaire-ferme">Fermé</span>');
+    } else {
+      grouped[h.jour].push(`<span class="horaire-badge">${debut} - ${fin}</span>`);
+    }
+  });
+  return joursOrdre.map(jour => `
+    <p><strong>${jour.charAt(0).toUpperCase()+jour.slice(1)} :</strong>
+    ${grouped[jour]?.join(' ') || '<span class="horaire-ferme">Fermé</span>'}</p>
+  `).join('');
+}
+
+// Supprimer un commerçant (pour un admin seulement)
+async function deleteCommercant(id) {
+  if (!confirm('Voulez-vous vraiment supprimer ce commerçant ?')) return;
+  let res = await fetch(`http://localhost:3000/commercants/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-auth': token }
+  });
+  if (res.ok) fetchCommercants();
+}
+
+// Tri des commerçants par nom puis email
+function trierCommercants(data) {
+  return data.sort((a, b) => {
+    let nomA = (a.nom_commercial || '').toLowerCase();
+    let nomB = (b.nom_commercial || '').toLowerCase();
+    if (nomA < nomB) return -1;
+    if (nomA > nomB) return 1;
+    let emailA = (a.email || '').toLowerCase();
+    let emailB = (b.email || '').toLowerCase();
+    if (emailA < emailB) return -1;
+    if (emailA > emailB) return 1;
+    return 0;
+  });
+}
+
+// Affichage du commerçant avec pagination
+function afficherPageCommercants(page) {
+  commercantsList.innerHTML = '';
+  filteredCommercants = trierCommercants(filteredCommercants);
+  let start = (page - 1) * PAGE_SIZE;
+  let end = start + PAGE_SIZE;
+  let pageItems = filteredCommercants.slice(start, end);
+  if (pageItems.length === 0) {
+    commercantsList.innerHTML = '<p>Aucun commerçant trouvé.</p>';
+    return;
+  }
+  pageItems.forEach(c => {
+    let div = document.createElement('div');
+    div.className = 'commercant-card';
+    div.innerHTML = `
+      <h3>${c.nom_commercial}</h3>
+      ${c.image 
+        ? `<img src="/commercant/images/${c.image}" class="commercant-img">`
+        : `<div class="commercant-initials">${c.nom_commercial[0]}</div>`}
+      ${formatHoraires(c.Horaire)}
+      <p><strong>Adresse :</strong> ${c.adresse}, ${c.code_postal} ${c.ville}</p>
+      <p><strong>Téléphone :</strong> ${c.telephone}</p>
+      <p><strong>Email :</strong> ${c.email}</p>
+      <p><strong>Site :</strong> <a href="${c.site_web||'#'}" target="_blank">${c.site_web||'Non défini'}</a></p>
+      <p><strong>Description :</strong> ${c.description||'Non définie'}</p>
+      <p><strong>Catégorie :</strong> ${c.Categorie?.libelle||'Non définie'}</p>
+      <div class="actions">
+        <button class="btn primary editBtn">Modifier</button>
+        ${isAdmin ? '<button class="btn danger deleteBtn">Supprimer</button>' : ''}
+      </div>
+    `;
+    div.querySelector('.editBtn').onclick = () => {
+      sessionStorage.setItem('editCommercant', JSON.stringify(c));
+      window.location.href = 'formulaire_commercant.html';
+    };
+    if (isAdmin && div.querySelector('.deleteBtn')) {
+      div.querySelector('.deleteBtn').onclick = () => deleteCommercant(c.id_commercant);
+    }
+    commercantsList.appendChild(div);
+  });
+
+  // Pagination
+  document.getElementById('paginationContainer').style.display = filteredCommercants.length > PAGE_SIZE ? 'block' : 'none';
+  document.getElementById('pageInfo').textContent = `Page ${currentPage} / ${Math.ceil(filteredCommercants.length / PAGE_SIZE)}`;
+  document.getElementById('prevPageBtn').disabled = currentPage === 1;
+  document.getElementById('nextPageBtn').disabled = currentPage >= Math.ceil(filteredCommercants.length / PAGE_SIZE);
+}
+
+// Affichage du commerçant 
+async function fetchCommercants() {
+  if (!token) {
+    commercantsList.innerHTML = '<p>Veuillez vous connecter pour voir la page commerçant.</p>';
+    return;
+  }
+  commercantsList.textContent = 'Chargement...';
+  try {
+    let res = await fetch('http://localhost:3000/commercants', { headers: { 'x-auth': token } });
+    
+    if (res.status === 401) {
+      sessionStorage.removeItem('session');
+      alert('Session expirée. Veuillez vous reconnecter.');
+      window.location.href = 'login.html';
+      return;
+    }
+
+    if (!res.ok) throw new Error('Erreur serveur');
+
+    let data = await res.json();
+    allCommercants = data;
+    filteredCommercants = [...allCommercants];
+    currentPage = 1;
+    afficherPageCommercants(currentPage);
+  } catch {
+    commercantsList.textContent = 'Impossible de charger les commerçants.';
+  }
+}
+
+// Recherche
+searchInput.addEventListener('input', e => {
+  let value = e.target.value.toLowerCase();
+  filteredCommercants = allCommercants.filter(c => c.nom_commercial.toLowerCase().includes(value) || (c.email || '').toLowerCase().includes(value));
+  currentPage = 1;
+  afficherPageCommercants(currentPage);
+});
+
+// Pagination 
+document.getElementById('prevPageBtn').onclick = () => { if(currentPage > 1){ currentPage--; afficherPageCommercants(currentPage); } };
+document.getElementById('nextPageBtn').onclick = () => { if(currentPage < Math.ceil(filteredCommercants.length/PAGE_SIZE)){ currentPage++; afficherPageCommercants(currentPage); } };
+
+// Initialiser  
+renderHeader();
+checkAdmin().then(fetchCommercants);
+
+// Gestion retour arrière pour éviter l'affichage des infos si on est déconnecté
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted || !sessionStorage.getItem('session')) {
+    window.location.replace('login.html');
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  if (!session?.id_session || !token) return;
+  navigator.sendBeacon(`http://localhost:3000/sessions/${session.id_session}`, JSON.stringify({ connecter: false, token }));
+});
+
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

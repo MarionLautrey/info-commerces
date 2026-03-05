@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Créer un compte commerçant</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+</head>
+<body>
+
+<header class="header">
+  <h1>Créer un compte commerçant</h1>
+  <button id="backBtn" class="btn">Retour</button>
+</header>
+
+<main class="main">
+  <section class="container">
+    <input type="text" id="login" placeholder="Login" required>
+    <input type="text" id="email" placeholder="Email" required>
+  <div class="password-container">
+    <input type="password" id="mot_de_passe" placeholder="Mot de passe">
+  </div>
+  <div class="show-password">
+    <input type="checkbox" id="showPasswordCheckbox">
+    <label for="showPasswordCheckbox">Afficher le mot de passe</label>
+    <button type="button" id="generateBtn" class="btn">Générer</button>
+  </div>
+    <select id="nom_commercial"></select>
+    <button id="submitBtn" class="btn primary">Enregistrer</button>
+    <p id="result"></p>
+  </section>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+if (!session?.token) window.location.replace('login.html');
+let loginInput = document.getElementById('login');
+let emailInput = document.getElementById('email');
+let motDePasseInput = document.getElementById('mot_de_passe');
+let generateBtn = document.getElementById('generateBtn');
+let toggleBtn = document.getElementById('toggleBtn');
+let selectCommercant = document.getElementById('nom_commercial');
+let result = document.getElementById('result');
+let backBtn = document.getElementById('backBtn');
+backBtn.onclick = () => { window.location.href = 'compte.html'; };
+
+// Charger la liste des commerçants
+fetch('/commercants', { headers: { 'x-auth': session.token } })
+.then(res => res.ok ? res.json() : Promise.reject('Erreur API'))
+.then(commercants => {
+  selectCommercant.innerHTML = '<option value="">Sélectionner un commerce</option>';
+  commercants.forEach(c => {
+    let option = document.createElement('option');
+    option.value = c.id_commercant;
+    option.textContent = c.nom_commercial;
+    selectCommercant.appendChild(option);
+  });
+  new Choices(selectCommercant, { searchEnabled: true, itemSelectText: '', shouldSort: false });
+})
+.catch(err => { console.error(err); selectCommercant.innerHTML = '<option value="">Erreur de chargement</option>'; });
+
+// Génération mot de passe
+function generatePassword(length = 12) {
+  let lower = 'abcdefghijklmnopqrstuvwxyz';
+  let upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let digits = '0123456789';
+  let special = '!@#$%^&*()_+{}[]';
+  let all = lower + upper + digits + special;
+  let password = '';
+  password += lower[Math.floor(Math.random() * lower.length)];
+  password += upper[Math.floor(Math.random() * upper.length)];
+  password += digits[Math.floor(Math.random() * digits.length)];
+  password += special[Math.floor(Math.random() * special.length)];
+  for (let i = password.length; i < length; i++) {
+    password += all[Math.floor(Math.random() * all.length)];
+  }
+  return password.split('').sort(() => Math.random() - 0.5).join('');
+}
+
+// Vérifier si login existe avant de générer
+async function loginExiste(login) {
+  try {
+    let res = await fetch(`/compte_commercants/check-login?login=${encodeURIComponent(login)}`, {
+      headers: { 'x-auth': session.token }
+    });
+    let json = await res.json();
+    return json.exists;
+  } catch (err) {
+    console.error(err);
+    return false;
+  }
+}
+generateBtn.onclick = async () => {
+  let login = loginInput.value.trim();
+  if (!login) { alert('Veuillez saisir le login avant de générer un mot de passe'); return; }
+  let exists = await loginExiste(login);
+  if (exists) {
+    alert('Ce login existe déjà. Choisissez-en un autre avant de générer le mot de passe.');
+    return;
+  }
+  if (!confirm(`⚠️ Génération d'un nouveau mot de passe\nCompte : ${login}\nVoulez-vous continuer ?`)) return;
+  motDePasseInput.value = generatePassword(12);
+  alert(` Mot de passe généré pour ${login}`);
+};
+
+// Voir / cacher mot de passe 
+let showPasswordCheckbox = document.getElementById('showPasswordCheckbox');
+showPasswordCheckbox.addEventListener('change', () => {
+  motDePasseInput.type = showPasswordCheckbox.checked ? 'text' : 'password';
+});
+
+// Formulaire
+submitBtn.onclick = async () => {
+  if (!selectCommercant.value) { result.textContent = 'Veuillez sélectionner un commerce'; result.style.color='red'; return; }
+  if (!loginInput.value.trim() || !motDePasseInput.value.trim() || !emailInput.value.trim()) {
+    result.textContent = 'Veuillez remplir tous les champs'; result.style.color='red'; return;
+  }
+  let data = {
+    login: loginInput.value.trim(),
+    email: emailInput.value.trim(),
+    mot_de_passe: motDePasseInput.value.trim(),
+    id_commercant: selectCommercant.value
+  };
+  try {
+    let res = await fetch('/compte_commercants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth': session.token },
+      body: JSON.stringify(data)
+    });
+    let json = await res.json();
+    if (!res.ok) throw new Error(json.erreur || 'Erreur création compte');
+    result.textContent = ' Compte créé avec succès';
+    result.style.color = 'green';
+    setTimeout(() => window.location.href = 'compte.html', 1500);
+  } catch (err) {
+    result.textContent = err.message;
+    result.style.color = 'red';
+  }
+};
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->

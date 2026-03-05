@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Actualité</title>
+  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left"><h1>Actualité</h1></div>
+  <div class="header-center">
+    <button id="btnInfos" class="header-text-btn">Commerçant</button>
+    <button id="btnActualite" class="header-text-btn">Actualité</button>
+    <button id="btnCompte" class="header-text-btn">Compte</button>
+  </div>
+  <div class="header-right">
+    <button id="logoutBtn" class="btn danger">Déconnexion</button>
+  </div>
+</header>
+
+<main class="main">
+  <div id="toolbarCommercants" class="toolbar-comptes">
+    <input type="text" id="searchCommercant" placeholder=" Rechercher une actualité...">
+  </div>
+  <div class="add-actualite-container">
+    <button id="addActualiteBtn" class="btn primary">Ajouter une actualité</button>
+  </div>
+  <section class="actualites-container" id="actualitesList"></section>
+  <div id="paginationContainer" style="text-align:center; margin-top:10px;">
+    <button id="prevPageBtn" class="btn secondary">Précédent</button>
+    <span id="pageInfo" style="margin:0 10px;"></span>
+    <button id="nextPageBtn" class="btn secondary">Suivant</button>
+  </div>
+</main>
+
+<script>
+let session = JSON.parse(sessionStorage.getItem('session'));
+let token = session?.token || null;
+let logoutBtn = document.getElementById('logoutBtn');
+let addBtn = document.getElementById('addActualiteBtn');
+let actualitesList = document.getElementById('actualitesList');
+let headerRight = document.querySelector('.header-right');
+let btnCompte = document.getElementById('btnCompte');
+let toolbarCommercants = document.getElementById('toolbarCommercants');
+let isAdmin = false;
+
+// Pagination
+let allActualites = [];
+let filteredActualites = [];
+let currentPage = 1;
+let PAGE_SIZE = 10; 
+
+// Affichage des pages en fonction de la connexion  
+function renderHeader() {
+  
+// Utilisateur non connecté
+if (!session?.id_compte) {
+  logoutBtn.style.display = 'none';
+  addBtn.style.display = 'none';
+  toolbarCommercants.style.display = 'none';
+  document.getElementById('paginationContainer').style.display = 'none';
+  if (!document.getElementById('loginBtn')) {
+    let loginBtn = document.createElement('button');
+    loginBtn.id = 'loginBtn';
+    loginBtn.className = 'btn login-btn';
+    loginBtn.textContent = 'Se connecter';
+    loginBtn.onclick = () => window.location.href = 'login.html';
+    headerRight.appendChild(loginBtn);
+  }
+  return;
+}
+
+// Utilisateur connecté
+  logoutBtn.style.display = 'inline-block';
+  btnCompte.style.display = 'inline-block'; 
+  addBtn.style.display = 'inline-block';
+  document.getElementById('loginBtn')?.remove();
+}
+
+// Vérifier les rôles
+async function checkAdmin() {
+  if (!token) {
+    isAdmin = false;
+    renderHeader();
+    return;
+  }
+  try {
+    let res = await fetch('/commercants/session', {
+      headers: { 'x-auth': token }
+    });
+    if (!res.ok) throw new Error();
+    let user = await res.json();
+    isAdmin = !!user.qualite;
+  } catch (err) {
+    isAdmin = false;
+  }
+  renderHeader();
+}
+
+// Bouton de l'entête 
+document.getElementById('btnActualite').onclick = () => window.location.href = 'actualite.html';
+document.getElementById('btnInfos').onclick = () => window.location.href = 'commercant.html';
+btnCompte.onclick = () => window.location.href = 'compte.html';
+
+// Déconnexion
+logoutBtn.onclick = () => {
+  sessionStorage.removeItem('session');
+  session = null;
+  token = null;
+  isAdmin = false;
+  renderHeader();
+  actualitesList.innerHTML = '<p>Veuillez vous connecter pour voir la page actualité.</p>';
+};
+
+// Ajouter actualité
+addBtn.onclick = () => {
+  sessionStorage.removeItem('editActualite');
+  window.location.href = 'formulaire_actualite.html';
+};
+
+// Tri des actualités par id_commercant
+function trierActualitesParCommercant(data) {
+  return data.sort((a, b) => {
+    let idA = Number(a.id_commercant ?? 0);
+    let idB = Number(b.id_commercant ?? 0);
+    return idA - idB;
+  });
+}
+
+// Récupérer des actualités
+async function fetchActualites() {
+  if (!token) {
+    actualitesList.innerHTML = '<p>Veuillez vous connecter pour voir la page actualité.</p>';
+    return;
+  }
+  actualitesList.textContent = 'Chargement...';
+  try {
+    let res = await fetch('/actualites', {
+      headers: { 'x-auth': token }
+    });
+    if (!res.ok) throw new Error('Erreur serveur');
+    allActualites = trierActualitesParCommercant(await res.json());
+    filteredActualites = [...allActualites];
+    currentPage = 1;
+    afficherPage(currentPage);
+  } catch (err) {
+    actualitesList.textContent = 'Impossible de charger les actualités.';
+  }
+}
+
+// Affichage avec pagination
+function afficherPage(page) {
+  actualitesList.innerHTML = '';
+  let start = (page - 1) * PAGE_SIZE;
+  let end = start + PAGE_SIZE;
+  let pageItems = filteredActualites.slice(start, end);
+if (!pageItems.length) {
+  actualitesList.innerHTML = '<p>Aucune actualité trouvée.</p>';
+  document.getElementById('paginationContainer').style.display = 'none';
+  return;
+}
+  pageItems.forEach(actu => {
+    let div = document.createElement('div');
+    div.className = 'actualite-card';
+    let imgSrc = actu.chemin_img 
+      ? (actu.chemin_img.startsWith('http') || actu.chemin_img.startsWith('/') 
+          ? actu.chemin_img 
+          : '/actualite/images/' + actu.chemin_img) 
+      : '';
+    let dateTexte = actu.updatedAt 
+      ? `Modifié le : ${new Date(actu.updatedAt).toLocaleDateString('fr-FR')}`
+      : `Publié le : ${new Date(actu.date_publication).toLocaleDateString('fr-FR')}`;
+    div.innerHTML = `
+      <h3>${actu.titre}</h3>
+      <p>${actu.contenu}</p>
+      ${imgSrc ? `<img src="${imgSrc}" class="actualite-img">` : ''}
+      <small>${dateTexte}</small>
+    `;
+    let actionsDiv = document.createElement('div');
+    actionsDiv.className = 'actions';
+
+// Modifier des actualités
+    let editBtn = document.createElement('button');
+    editBtn.className = 'editBtn btn primary';
+    editBtn.textContent = 'Modifier';
+    editBtn.onclick = () => {
+      sessionStorage.setItem('editActualite', JSON.stringify(actu));
+      window.location.href = 'formulaire_actualite.html';
+    };
+
+// Supprimer des actualités
+    let deleteBtn = document.createElement('button');
+    deleteBtn.className = 'deleteBtn btn danger';
+    deleteBtn.textContent = 'Supprimer';
+    deleteBtn.onclick = async () => {
+      if (!confirm('Voulez-vous vraiment supprimer cette actualité ?')) return;
+      let resDelete = await fetch(`/actualites/${actu.id_actualite}`, {
+        method: 'DELETE',
+        headers: { 'x-auth': token }
+      });
+      if (resDelete.ok) fetchActualites();
+    };
+    actionsDiv.appendChild(editBtn);
+    actionsDiv.appendChild(deleteBtn);
+    div.appendChild(actionsDiv);
+    actualitesList.appendChild(div);
+  });
+  document.getElementById('paginationContainer').style.display = filteredActualites.length > PAGE_SIZE ? 'block' : 'none';
+  document.getElementById('pageInfo').textContent = `Page ${currentPage} / ${Math.ceil(filteredActualites.length / PAGE_SIZE)}`;
+  document.getElementById('prevPageBtn').disabled = currentPage === 1;
+  document.getElementById('nextPageBtn').disabled =currentPage >= Math.ceil(filteredActualites.length / PAGE_SIZE);
+}
+
+// Recherche
+document.getElementById('searchCommercant').addEventListener('input', e => {
+  let value = e.target.value.toLowerCase();
+  filteredActualites = allActualites.filter(actu => actu.titre.toLowerCase().includes(value));
+  currentPage = 1;
+  afficherPage(currentPage);
+});
+
+// Pagination
+document.getElementById('prevPageBtn').onclick = () => { if (currentPage > 1) { currentPage--; afficherPage(currentPage);}};
+document.getElementById('nextPageBtn').onclick = () => { if (currentPage < Math.ceil(filteredActualites.length / PAGE_SIZE)) {currentPage++;afficherPage(currentPage);}
+};
+
+// Initialiser
+renderHeader();
+checkAdmin().then(fetchActualites);
+
+// Gestion retour arrière pour éviter l'affichage des infos si on est déconnecté
+window.addEventListener('pageshow', function(event) {
+  session = JSON.parse(sessionStorage.getItem('session'));
+  token = session?.token || null;
+  isAdmin = false;
+  renderHeader();
+  checkAdmin().then(fetchActualites);
+});
+</script>
+</body>
+</html>
+<!-- Ce code appartient à la société IDEAL SOLUTIONS -->
